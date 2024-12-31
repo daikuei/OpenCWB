@@ -11,7 +11,7 @@ from . import forecaster, historian, observation, forecast, stationhistory, one_
 from .uris import ROOT_WEATHER_API, OBSERVATION_URI, GROUP_OBSERVATIONS_URI, FIND_OBSERVATIONS_URI, \
     BBOX_CITY_URI, THREE_HOURS_FORECAST_URI, DAILY_FORECAST_URI, STATION_WEATHER_HISTORY_URI, ONE_CALL_URI, \
     ONE_CALL_HISTORICAL_URI
-from ..commons.location_tw import LOCATIONS
+from ..commons.location_tw import HOURLY_LOCATIONS, DAILY_LOCATIONS
 
 
 class WeatherManager:
@@ -36,25 +36,34 @@ class WeatherManager:
     def weather_api_version(self):
         return WEATHER_API_VERSION
 
-    def supported_city(self, location_name):
+    def supported_city(self, location_name, interval: str = 'daily'):
         """
         Returns the city that the OCWB API supports
 
         :return: `str` or `None`
         """
-        for i in LOCATIONS:
-            for j in LOCATIONS[i]:
-                if urllib.parse.quote_plus(
-                        location_name).replace("%E5%8F%B0", "%E8%87%BA") == j:
-                    return i
-        return None
+
+        if interval == 'hourly':
+            for loc_id, loc_info_cities in HOURLY_LOCATIONS.items():
+                for city in loc_info_cities:
+                    if urllib.parse.quote_plus(
+                            location_name).replace("%E5%8F%B0", "%E8%87%BA") == city:
+                        return loc_id
+        elif interval == 'daily':
+            for loc_id, loc_info_cities in DAILY_LOCATIONS.items():
+                for city in loc_info_cities:
+                    if urllib.parse.quote_plus(
+                            location_name).replace("%E5%8F%B0", "%E8%87%BA") == city:
+                        return loc_id
+        else:
+            return None
 
     def remove_city_name(self, location_name):
         location_name = urllib.parse.quote_plus(
             location_name).replace("%E5%8F%B0", "%E8%87%BA")
-        for i in LOCATIONS["F-D0047-091"]:
-            if i in location_name:
-                return location_name.replace(i, "")
+        for taiwan_cities in DAILY_LOCATIONS["F-D0047-091"]:
+            if taiwan_cities in location_name:
+                return location_name.replace(taiwan_cities, "")
         return location_name
 
     def weather_at_place(self, name, interval):
@@ -74,19 +83,21 @@ class WeatherManager:
         """
 
         assert isinstance(name, str), "Value must be a string"
-        loc_id = self.supported_city(name)
+        loc_id = self.supported_city(name,  interval)
         if loc_id is None:
             raise ValueError("%s is not support location".format(name))
 
         if '\u5e02' in name.lower():
             name = name.lower().split('\u5e02')[1] if len(name.lower().split('\u5e02')) >= 2 else name
 
-        params = {'locationName': name}
-        if interval == 'hourly':
-            uri = loc_id
-        elif interval == 'daily':
-            uri = loc_id[0:loc_id.rindex("-") + 1] + str(
-                int(loc_id[loc_id.rindex("-") + 1:]) + 2).zfill(3)
+        params = {'locationName': name, 'timeFrom': datetime.now().strftime("%Y-%m-%dT%H:00:00")}
+        # DK: support for hourly and daily
+        uri = loc_id
+        # if interval == 'hourly':
+        #     uri = loc_id
+        # elif interval == 'daily':
+        #     uri = loc_id[0:loc_id.rindex("-") + 1] + str(
+        #         int(loc_id[loc_id.rindex("-") + 1:]) + 2).zfill(3)
         _, json_data = self.http_client.get_json(uri, params=params)
         return observation.Observation.from_dict(json_data)
 
@@ -311,19 +322,18 @@ class WeatherManager:
         """
         assert isinstance(name, str), "Value must be a string"
         assert isinstance(interval, str), "Interval must be a string"
-        loc_id = self.supported_city(name)
+        loc_id = self.supported_city(location_name=name, interval=interval)
         if loc_id is None:
             raise ValueError("%s is not support location".format(name))
 
         if '\u5e02' in name.lower():
             name = name.lower().split('\u5e02')[1] if len(name.lower().split('\u5e02')) >= 2 else name
 
-
         if limit is not None:
             assert isinstance(limit, int), "'limit' must be an int or None"
             if limit < 1:
                 raise ValueError("'limit' must be None or greater than zero")
-        params = {'locationName': urllib.parse.quote_plus(name)}
+        params = {'locationName': urllib.parse.quote_plus(name), 'timeFrom': datetime.now().strftime("%Y-%m-%dT%H:00:00")}
         if limit is not None:
             params['cnt'] = limit
         if interval == 'hourly':
@@ -574,7 +584,7 @@ class WeatherManager:
         geo.assert_is_lon(lon)
         geo.assert_is_lat(lat)
 
-        loc_id = self.supported_city(loc)
+        loc_id = self.supported_city(location_name=loc, interval=intvl)
         loc = self.remove_city_name(loc)
         uri = loc_id
         if intvl == "daily":
@@ -583,10 +593,12 @@ class WeatherManager:
         params = {
             'lon': lon,
             'lat': lat,
-#            'locationId': loc_id,
+            #            'locationId': loc_id,
             'locationName': loc,
-            'interval': intvl}
-        for key , value in kwargs.items():
+            'timeFrom': datetime.now().strftime("%Y-%m-%dT%H:00:00"),
+            # 'interval': intvl}
+            }
+        for key, value in kwargs.items():
             if key == 'exclude':
                 params['exclude'] = value
             elif key == 'units':

@@ -158,4 +158,4 @@ async def _is_ocwb_api_online(hass, api_key, lat, lon, loc):
 
 def _is_supported_city(api_key, loc):
     ocwb = OCWB(api_key).weather_manager()
-    return ocwb.supported_city(loc)
+    return ocwb.supported_city(location_name=loc)
